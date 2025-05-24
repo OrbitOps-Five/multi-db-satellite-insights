@@ -62,3 +62,44 @@ A `docker-compose.yml` is provided to run the full stack:
 ### Run the project:
 ```bash
 docker-compose up --build
+```
+
+## 📡 Data Sources
+CelesTrak
+Space-Track.org
+Launch Library 2 API
+Open Notify API
+
+## 📂 Folder Structure
+```bash
+multi-db-satellite-insights/
+├── frontend/           # React app
+├── backend/
+│   ├── ms1-java/       # Spring Boot service
+│   ├── ms2-python/     # FastAPI or Node service
+│   ├── ms3-node/       # Node.js service
+│   └── ms4-python/     # Python/Node hybrid
+├── docker-compose.yml
+└── README.md
+```
+
+## 🧠 Learning Objectives
+Demonstrate use of multiple specialized databases
+Real-time and historical data processing
+Graph data modeling with Neo4j
+Caching & pub-sub with Redis
+Container orchestration using Docker
+
+## 👨‍💻 Authors
+Arnav Kanade
+
+Sriramkumar Raja Natarajan
+
+Nikhil Chavan
+
+Pramukh Prakash
+
+Manu Janardhana
+
+This project was built as a part of the Advanced Databases course in the MSc Computer Science program.
+
