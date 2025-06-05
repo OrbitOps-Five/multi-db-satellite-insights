@@ -2,6 +2,7 @@ import httpx
 from neo4j_driver import get_session
 import os
 from dotenv import load_dotenv
+from data.utils import wait_for_neo4j
 
 load_dotenv()
 
@@ -13,13 +14,16 @@ def parse_tle(text):
     sats = []
     for i in range(0, len(lines), 3):
         if i + 2 < len(lines):
-            name = lines[i].strip()
-            tle1 = lines[i + 1].strip()
-            tle2 = lines[i + 2].strip()
-            sats.append({"name": name, "tle1": tle1, "tle2": tle2})
+            sats.append({
+                "name": lines[i].strip(),
+                "tle1": lines[i + 1].strip(),
+                "tle2": lines[i + 2].strip()
+            })
     return sats
 
 def import_celestrak():
+    wait_for_neo4j()
+
     print(f"🌐 Fetching TLEs from Celestrak: {url}")
     try:
         response = httpx.get(url, follow_redirects=True)

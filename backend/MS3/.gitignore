@@ -1,5 +1,4 @@
 .env
-requirements.txt
 venv/
 routers/__pycache__/
 data/__pycache__/

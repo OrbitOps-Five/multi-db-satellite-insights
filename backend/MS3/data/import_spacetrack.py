@@ -2,6 +2,7 @@ import httpx
 from neo4j_driver import get_session
 import os
 from dotenv import load_dotenv
+from data.utils import wait_for_neo4j
 
 load_dotenv()
 
@@ -24,6 +25,8 @@ def parse_tle(text):
     return sats
 
 def import_spacetrack():
+    wait_for_neo4j()
+
     print("🔐 Logging into Space-Track...")
     with httpx.Client() as client:
         try:

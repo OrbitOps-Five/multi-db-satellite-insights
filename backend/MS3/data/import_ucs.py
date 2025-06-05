@@ -1,9 +1,12 @@
 import pandas as pd
 from neo4j_driver import get_session
+from data.utils import wait_for_neo4j
 
 UCS_CSV_PATH = "./data/ucs-satellites.csv"
 
 def import_ucs():
+    wait_for_neo4j()
+
     print(f"📄 Reading UCS CSV: {UCS_CSV_PATH}")
     df = pd.read_csv(UCS_CSV_PATH)
     df.columns = df.columns.str.strip()
