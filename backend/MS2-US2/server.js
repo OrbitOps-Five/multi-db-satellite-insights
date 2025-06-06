@@ -1,11 +1,13 @@
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
-const Redis = require('ioredis');
+const { createClient } = require('redis');
 const axios = require('axios');
 const cron = require('node-cron');
+const satellite = require('satellite.js');
 const cors = require('cors');
 const path = require('path');
-require('dotenv').config();
+
 
 const app = express();
 app.use(cors());
@@ -15,181 +17,252 @@ const mongoUri = process.env.MONGO_URI;
 const redisUrl = process.env.REDIS_URL;
 const tleApiUrl = process.env.TLE_API_URL;
 
-const redis = new Redis(redisUrl);
 
-// Test Redis connection
-(async () => {
-  try {
-    const res = await redis.ping();
-    console.log('Redis ping response:', res); // should log 'PONG'
-    await redis.set('test-key', 'test-value');
-    const testValue = await redis.get('test-key');
-    console.log('Redis test value:', testValue);
-  } catch (err) {
-    console.error('Redis ping error:', err);
-  }
-})();
+const redis = createClient({ url: redisUrl });
+
+redis.on('error', (err) => console.error('❌ Redis error:', err));
 
 (async () => {
-  try {
-    const exists = await redis.exists('new-tles');
-    if (!exists) {
-      await redis.xadd('new-tles', '*', 'init', '1');
-      console.log('Created new Redis stream: new-tles');
-    } else {
-      const info = await redis.xinfo('STREAM', 'new-tles');
-      console.log('Redis stream info:', info);
-    }
-  } catch (err) {
-    console.error('Redis stream error:', err);
-  }
+  await redis.connect();
+  console.log('✅ Connected to Redis (node-redis)');
 })();
-// Also listen for connection events
-redis.on('connect', () => console.log('Redis connected'));
-redis.on('error', err => console.error('Redis error:', err));
 
-mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => { console.log('MongoDB connected'), ingestTLEs() })
-  .catch(err => console.error('MongoDB connection error:', err));
 
-const TleSnapshotSchema = new mongoose.Schema({
-  satId: String,
-  tle1: String,
-  tle2: String,
-  createdAt: { type: Date, default: Date.now }
-});
+mongoose
+  .connect(mongoUri, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log('✅ Connected to MongoDB'))
+  .catch((err) => {
+    console.error(' MongoDB connection error:', err);
+    process.exit(1);
+  });
 
-const ForecastPointSchema = new mongoose.Schema({
-  satId: String,
-  ts: Date,
-  position: {
-    type: { type: String, enum: ['Point'], default: 'Point' },
-    coordinates: [Number]
+const tleSchema = new mongoose.Schema(
+  {
+    satId: String,
+    tle1: String,
+    tle2: String,
+    timestamp: { type: Date, default: Date.now },
   },
-  altitudeKm: Number
-});
+  { collection: 'tle_snapshots' }
+);
 
-const TleSnapshot = mongoose.model('TleSnapshot', TleSnapshotSchema);
-const ForecastPoint = mongoose.model('ForecastPoint', ForecastPointSchema);
+const forecastSchema = new mongoose.Schema(
+  {
+    satId: String,
+    ts: Date,
+    position: { type: { type: String }, coordinates: [Number] }, // GeoJSON Point
+    altitudeKm: Number,
+  },
+  { collection: 'satellite_forecasts' }
+);
 
-async function ingestTLEs() {
-  console.log('Ingesting TLEs... called at', new Date().toISOString());
+// Create 2dsphere index on position for future geo‐queries (optional)
+forecastSchema.index({ position: '2dsphere' });
+
+const TleSnapshot = mongoose.model('TleSnapshot', tleSchema);
+const ForecastPoint = mongoose.model('ForecastPoint', forecastSchema);
+
+// ─────────────────────────────────────────────────────────────
+// 3. Ingestion Service (runs every 10 minutes via cron)
+// ─────────────────────────────────────────────────────────────
+async function fetchAndStoreTLEs() {
   try {
-    const response = await axios.get(tleApiUrl);
+    const resp = await axios.get(process.env.TLE_API_URL);
+    const lines = resp.data.trim().split('\n');
 
-    if (response.status !== 200) {
-      throw new Error(`Failed to fetch TLEs: ${response.status} ${response.statusText}`);
+    for (let i = 0; i < lines.length; i += 3) {
+      const name = lines[i].trim();
+      const tle1 = lines[i + 1].trim();
+      const tle2 = lines[i + 2].trim();
+      const satId = tle1.slice(2, 7);
+
+      const doc = await TleSnapshot.create({ satId, tle1, tle2 });
+      console.log(`[${new Date().toISOString()}] 🛰️ before redis xadd for satId=${satId}`);
+
+      // Using node-redis’s xAdd
+      // Note: in node-redis v4, xAdd signature is: xAdd(key, id, mapObject)
+      //    mapObject is an object with field:value pairs
+      const xaddId = await redis.xAdd(
+        'new-tles',
+        '*',
+        { satId, snapshotId: doc._id.toString() }
+      );
+      console.log(`[${new Date().toISOString()}] 🛰️ after redis xadd returned ID=${xaddId}`);
     }
-    // console.log('Received response from TLE API:', JSON.stringify(response.data).slice(0, 500));
-    const tleData = response.data.split('\n').filter(line => line.trim());
 
-    for (let i = 0; i < tleData.length; i += 3) {
-      console.log(`Processing TLE for satellite: ${tleData[i].trim()}`);
-      const satId = tleData[i].trim();
-      const tle1 = tleData[i + 1].trim();
-      const tle2 = tleData[i + 2].trim();
-
-      const tleSnapshot = new TleSnapshot({ satId, tle1, tle2 });
-      // await tleSnapshot.save();
-      const pingResponse = await redis.ping();
-      console.log('Redis ping response after saving TLE:', pingResponse); // should log 'PONG'
-
-      // try {
-      //   console.log('Before adding to Redis stream');
-      //   await redis.xadd('new-tles', '*', 'satId', satId, 'snapshotId', tleSnapshot._id.toString());
-      //   console.log('Added to Redis stream');
-      // } catch (err) {
-      //   console.error('Error adding message to Redis stream:', err);
-      // }
-    }
-  } catch (error) {
-    console.error('Error ingesting TLEs:', error);
+    console.log(`[${new Date().toISOString()}] 🛰️ TLE ingestion complete`);
+  } catch (err) {
+    console.error('[Ingestion Error]', err.message);
   }
 }
 
+// Schedule cron job: “*/10 * * * *” → every 10 minutes
+cron.schedule('*/10 * * * *', fetchAndStoreTLEs);
+// Also run once immediately on startup
+fetchAndStoreTLEs().catch(console.error);
+
+// ─────────────────────────────────────────────────────────────
+// 4. Propagation Worker (consumes Redis Stream, computes SGP4)
+// ─────────────────────────────────────────────────────────────
 async function propagationLoop() {
+  let lastId = '0-0'; // read from the beginning the first time
+
   while (true) {
-    const result = await redis.xread('BLOCK', 0, 'STREAMS', 'new-tles', '$');
-    const messages = result[0][1];
+    try {
+      // BLOCK until new entry arrives in the stream “new-tles”
+      const streams = await redis.xread(
+        'BLOCK',
+        0,
+        'STREAMS',
+        'new-tles',
+        lastId
+      );
+      if (!streams) continue;
 
-    for (const message of messages) {
-      const [id, fields] = message;
-      const satId = fields[1];
-      const snapshotId = fields[3];
+      const [[, messages]] = streams;
+      for (const [msgId, fields] of messages) {
+        lastId = msgId; // update so we don’t re-read this message
+        const data = {};
+        for (let i = 0; i < fields.length; i += 2) {
+          data[fields[i]] = fields[i + 1];
+        }
+        const { satId, snapshotId } = data;
 
-      const tleSnapshot = await TleSnapshot.findById(snapshotId);
-      const satrec = satellite.twoline2satrec(tleSnapshot.tle1, tleSnapshot.tle2);
-      const points = [];
+        // 4.1 Fetch the exact TLE document from Mongo
+        const tleDoc = await TleSnapshot.findById(snapshotId);
+        if (!tleDoc) continue;
 
-      for (let i = 0; i < 120; i++) {
-        const ts = Date.now() + i * 60000; // 60 seconds intervals
-        const positionAndVelocity = satellite.propagate(satrec, new Date(ts));
-        const positionEci = positionAndVelocity.position;
-        const positionGd = satellite.eciToGeodetic(positionEci, new Date(ts));
+        // 4.2 Create satrec from TLE lines using satellite.js
+        const satrec = satellite.twoline2satrec(tleDoc.tle1, tleDoc.tle2);
+        const now = new Date();
 
-        points.push({
-          satId,
-          ts,
-          position: {
-            type: 'Point',
-            coordinates: [positionGd.longitude * (180 / Math.PI), positionGd.latitude * (180 / Math.PI)]
-          },
-          altitudeKm: positionGd.height / 1000
-        });
+        // 4.3 Build array of forecast points (120 steps @ 60s each = 2 hours)
+        const points = [];
+        for (let s = 0; s <= 120 * 60; s += 60) {
+          const t = new Date(now.getTime() + s * 1000); // future time
+          const eciPos = satellite.propagate(satrec, t).position;
+          const gmst = satellite.gstime(t);
+          const geo = satellite.eciToGeodetic(eciPos, gmst);
+          const lon = satellite.degreesLong(geo.longitude);
+          const lat = satellite.degreesLat(geo.latitude);
+          const alt = geo.height; // in km
+
+          points.push({
+            satId,
+            ts: t,
+            position: { type: 'Point', coordinates: [lon, lat] },
+            altitudeKm: alt,
+          });
+        }
+
+        // 4.4 Bulk‐insert those points into MongoDB
+        await ForecastPoint.insertMany(points);
+
+        // 4.5 Cache the same points in Redis Sorted Set “forecast:<satId>”
+        const zkey = `forecast:${satId}`;
+        const pipeline = redis.pipeline();
+
+        pipeline.del(zkey);
+        for (const p of points) {
+          pipeline.zadd(
+            zkey,
+            p.ts.getTime(), // use epoch ms as score
+            JSON.stringify({
+              ts: p.ts.getTime(),
+              lon: p.position.coordinates[0],
+              lat: p.position.coordinates[1],
+              alt: p.altitudeKm,
+            })
+          );
+        }
+        // Keep this key alive for 2.5 hours (in seconds)
+        pipeline.expire(zkey, 2.5 * 3600);
+        await pipeline.exec();
+
+        console.log(
+          `[${new Date().toISOString()}] 🛰️  Propagated forecasts for sat=${satId}`
+        );
       }
-
-      await ForecastPoint.insertMany(points);
-      points.forEach(point => {
-        redis.del(`forecast:${satId}`);
-        redis.zadd(`forecast:${satId}`, point.ts, JSON.stringify(point));
-        redis.expire(`forecast:${satId}`, 9000); // expire in 2.5 hours
-      });
+    } catch (err) {
+      console.error('[Propagation Error]', err);
+      // Wait 1 second before retrying on error
+      await new Promise((r) => setTimeout(r, 1000));
     }
   }
 }
+propagationLoop().catch(console.error);
 
 
-cron.schedule('*/10 * * * *', ingestTLEs);
-propagationLoop();
-
+// GET /api/forecast/:satId?start=<ms>&end=<ms>
 app.get('/api/forecast/:satId', async (req, res) => {
-  const { satId } = req.params;
-  const now = Date.now();
-  const start = req.query.start || now;
-  const end = req.query.end || now + 7200000; // 2 hours
-
   try {
-    const cachedForecast = await redis.zrangebyscore(`forecast:${satId}`, start, end);
-    if (cachedForecast.length) {
-      return res.json(cachedForecast.map(JSON.parse));
+    const { satId } = req.params;
+    const now = Date.now();
+    const start = Number(req.query.start) || now;
+    const end = Number(req.query.end) || now + 2 * 3600 * 1000;
+    const zkey = `forecast:${satId}`;
+
+    // 5.1 Try to read from Redis Sorted Set
+    let cached = await redis.zrangebyscore(zkey, start, end);
+    if (cached && cached.length > 0) {
+      // Parse each JSON string into an object
+      return res.json(cached.map(JSON.parse));
     }
 
-    const forecastPoints = await ForecastPoint.find({
+    // 5.2 Fallback: query MongoDB
+    const docs = await ForecastPoint.find({
       satId,
-      ts: { $gte: new Date(start), $lte: new Date(end) }
-    }).sort('ts').lean();
+      ts: { $gte: new Date(start), $lte: new Date(end) },
+    })
+      .sort('ts')
+      .lean();
 
-    forecastPoints.forEach(point => {
-      redis.zadd(`forecast:${satId}`, point.ts, JSON.stringify(point));
-      redis.expire(`forecast:${satId}`, 9000); // expire in 2.5 hours
-    });
+    // 5.3 Backfill Redis with these docs
+    if (docs.length > 0) {
+      const pipe = redis.pipeline();
+      pipe.del(zkey);
+      for (const d of docs) {
+        pipe.zadd(
+          zkey,
+          d.ts.getTime(),
+          JSON.stringify({
+            ts: d.ts.getTime(),
+            lon: d.position.coordinates[0],
+            lat: d.position.coordinates[1],
+            alt: d.altitudeKm,
+          })
+        );
+      }
+      pipe.expire(zkey, 2.5 * 3600);
+      await pipe.exec();
+    }
 
-    res.json(forecastPoints.map(point => ({
-      ts: point.ts,
-      lon: point.position.coordinates[0],
-      lat: point.position.coordinates[1],
-      alt: point.altitudeKm
-    })));
-  } catch (error) {
-    console.error('Error fetching forecast:', error);
-    res.status(500).send('Internal Server Error');
+    // 5.4 Return the forecast from Mongo
+    return res.json(
+      docs.map((d) => ({
+        ts: d.ts.getTime(),
+        lon: d.position.coordinates[0],
+        lat: d.position.coordinates[1],
+        alt: d.altitudeKm,
+      }))
+    );
+  } catch (err) {
+    console.error('[API Error]', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// 6. Serve React Build in Production
+// ─────────────────────────────────────────────────────────────
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, 'client/build')));
+  const clientBuildPath = path.join(__dirname, 'client', 'build');
+  app.use(express.static(clientBuildPath));
   app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
+    res.sendFile(path.join(clientBuildPath, 'index.html'));
   });
 }
 
