@@ -20,11 +20,15 @@ const tleApiUrl = process.env.TLE_API_URL;
 
 const redis = createClient({ url: redisUrl });
 
+const redisStream = createClient({ url: process.env.REDIS_URL });
+
 redis.on('error', (err) => console.error('❌ Redis error:', err));
 
 (async () => {
   await redis.connect();
   console.log('✅ Connected to Redis (node-redis)');
+  await redisStream.connect();
+  console.log('✅ Connected to Redis Stream Client');
 })();
 
 
@@ -59,15 +63,11 @@ const forecastSchema = new mongoose.Schema(
   { collection: 'satellite_forecasts' }
 );
 
-// Create 2dsphere index on position for future geo‐queries (optional)
 forecastSchema.index({ position: '2dsphere' });
 
 const TleSnapshot = mongoose.model('TleSnapshot', tleSchema);
 const ForecastPoint = mongoose.model('ForecastPoint', forecastSchema);
 
-// ─────────────────────────────────────────────────────────────
-// 3. Ingestion Service (runs every 10 minutes via cron)
-// ─────────────────────────────────────────────────────────────
 async function fetchAndStoreTLEs() {
   try {
     const resp = await axios.get(process.env.TLE_API_URL);
@@ -82,9 +82,6 @@ async function fetchAndStoreTLEs() {
       const doc = await TleSnapshot.create({ satId, tle1, tle2 });
       console.log(`[${new Date().toISOString()}] 🛰️ before redis xadd for satId=${satId}`);
 
-      // Using node-redis’s xAdd
-      // Note: in node-redis v4, xAdd signature is: xAdd(key, id, mapObject)
-      //    mapObject is an object with field:value pairs
       const xaddId = await redis.xAdd(
         'new-tles',
         '*',
@@ -99,50 +96,47 @@ async function fetchAndStoreTLEs() {
   }
 }
 
-// Schedule cron job: “*/10 * * * *” → every 10 minutes
 cron.schedule('*/10 * * * *', fetchAndStoreTLEs);
-// Also run once immediately on startup
 fetchAndStoreTLEs().catch(console.error);
 
-// ─────────────────────────────────────────────────────────────
-// 4. Propagation Worker (consumes Redis Stream, computes SGP4)
-// ─────────────────────────────────────────────────────────────
 async function propagationLoop() {
-  let lastId = '0-0'; // read from the beginning the first time
+  let lastId = '0-0';
 
   while (true) {
     try {
-      // BLOCK until new entry arrives in the stream “new-tles”
-      const streams = await redis.xread(
-        'BLOCK',
-        0,
-        'STREAMS',
-        'new-tles',
-        lastId
+      const streams = await redisStream.xRead(
+        [{ key: 'new-tles', id: lastId }],
+        { BLOCK: 0, COUNT: 1 }
       );
-      if (!streams) continue;
 
-      const [[, messages]] = streams;
-      for (const [msgId, fields] of messages) {
-        lastId = msgId; // update so we don’t re-read this message
-        const data = {};
-        for (let i = 0; i < fields.length; i += 2) {
-          data[fields[i]] = fields[i + 1];
-        }
-        const { satId, snapshotId } = data;
+      if (!streams || streams.length === 0) {
+        continue;
+      }
 
-        // 4.1 Fetch the exact TLE document from Mongo
+      const { messages } = streams[0];
+
+
+      for (const msg of messages) {
+        lastId = msg.id; // advance the last ID so we don’t re-read this message
+
+        // msg.message is already an object: { satId: '25544', snapshotId: '...' }
+        const { satId, snapshotId } = msg.message;
+
+        // 4.2 Fetch the exact TLE document from MongoDB
         const tleDoc = await TleSnapshot.findById(snapshotId);
-        if (!tleDoc) continue;
+        if (!tleDoc) {
+          // If the document was somehow deleted, skip it
+          continue;
+        }
 
-        // 4.2 Create satrec from TLE lines using satellite.js
+        // 4.3 Create satrec from TLE lines using satellite.js
         const satrec = satellite.twoline2satrec(tleDoc.tle1, tleDoc.tle2);
         const now = new Date();
 
-        // 4.3 Build array of forecast points (120 steps @ 60s each = 2 hours)
+        // 4.4 Build array of forecast points (120 steps @ 60s each = 2 hours)
         const points = [];
         for (let s = 0; s <= 120 * 60; s += 60) {
-          const t = new Date(now.getTime() + s * 1000); // future time
+          const t = new Date(now.getTime() + s * 1000);
           const eciPos = satellite.propagate(satrec, t).position;
           const gmst = satellite.gstime(t);
           const geo = satellite.eciToGeodetic(eciPos, gmst);
@@ -158,29 +152,30 @@ async function propagationLoop() {
           });
         }
 
-        // 4.4 Bulk‐insert those points into MongoDB
         await ForecastPoint.insertMany(points);
 
-        // 4.5 Cache the same points in Redis Sorted Set “forecast:<satId>”
         const zkey = `forecast:${satId}`;
-        const pipeline = redis.pipeline();
 
-        pipeline.del(zkey);
+        const multi = redis.multi();
+
+        multi.del(zkey);
+
         for (const p of points) {
-          pipeline.zadd(
-            zkey,
-            p.ts.getTime(), // use epoch ms as score
-            JSON.stringify({
+          multi.zAdd(zkey, {
+            score: p.ts.getTime(),
+            value: JSON.stringify({
               ts: p.ts.getTime(),
               lon: p.position.coordinates[0],
               lat: p.position.coordinates[1],
               alt: p.altitudeKm,
-            })
-          );
+            }),
+          });
         }
         // Keep this key alive for 2.5 hours (in seconds)
-        pipeline.expire(zkey, 2.5 * 3600);
-        await pipeline.exec();
+        multi.expire(zkey, 2.5 * 3600);
+
+        await multi.exec();
+
 
         console.log(
           `[${new Date().toISOString()}] 🛰️  Propagated forecasts for sat=${satId}`
@@ -188,31 +183,32 @@ async function propagationLoop() {
       }
     } catch (err) {
       console.error('[Propagation Error]', err);
-      // Wait 1 second before retrying on error
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
 }
 propagationLoop().catch(console.error);
 
-
-// GET /api/forecast/:satId?start=<ms>&end=<ms>
 app.get('/api/forecast/:satId', async (req, res) => {
-  try {
-    const { satId } = req.params;
-    const now = Date.now();
-    const start = Number(req.query.start) || now;
-    const end = Number(req.query.end) || now + 2 * 3600 * 1000;
-    const zkey = `forecast:${satId}`;
+  const { satId } = req.params;
+  const now = Date.now();
+  const start = Number(req.query.start) || now;
+  const end = Number(req.query.end) || now + 2 * 3600 * 1000;
+  const zkey = `forecast:${satId}`;
 
-    // 5.1 Try to read from Redis Sorted Set
-    let cached = await redis.zrangebyscore(zkey, start, end);
-    if (cached && cached.length > 0) {
-      // Parse each JSON string into an object
+  console.log(`[API] Forecast request for satId=${satId}, start=${start}, end=${end}`);
+
+  try {
+    const cached = await redis.zRangeByScore(zkey, start, end);
+    console.log(`[API] Redis zRangeByScore returned ${cached.length} items for key=${zkey}`);
+
+    if (cached.length > 0) {
+      console.log(`[API] Cache hit for satId=${satId}`);
       return res.json(cached.map(JSON.parse));
     }
 
-    // 5.2 Fallback: query MongoDB
+    console.log(`[API] Cache miss for satId=${satId}, querying MongoDB...`);
+
     const docs = await ForecastPoint.find({
       satId,
       ts: { $gte: new Date(start), $lte: new Date(end) },
@@ -220,44 +216,44 @@ app.get('/api/forecast/:satId', async (req, res) => {
       .sort('ts')
       .lean();
 
-    // 5.3 Backfill Redis with these docs
+    console.log(`[API] MongoDB returned ${docs.length} documents for satId=${satId}`);
+
+    // 5.3 Backfill Redis with these docs, if any
     if (docs.length > 0) {
-      const pipe = redis.pipeline();
-      pipe.del(zkey);
+      console.log(`[API] Backfilling Redis key=${zkey} with ${docs.length} docs`);
+      const multi = redis.multi();
+      multi.del(zkey);
       for (const d of docs) {
-        pipe.zadd(
-          zkey,
-          d.ts.getTime(),
-          JSON.stringify({
+        multi.zAdd(zkey, {
+          score: d.ts.getTime(),
+          value: JSON.stringify({
             ts: d.ts.getTime(),
             lon: d.position.coordinates[0],
             lat: d.position.coordinates[1],
             alt: d.altitudeKm,
-          })
-        );
+          }),
+        });
       }
-      pipe.expire(zkey, 2.5 * 3600);
-      await pipe.exec();
+      multi.expire(zkey, 2.5 * 3600);
+      await multi.exec();
+      console.log(`[API] Redis backfill complete for key=${zkey}`);
     }
 
-    // 5.4 Return the forecast from Mongo
-    return res.json(
-      docs.map((d) => ({
-        ts: d.ts.getTime(),
-        lon: d.position.coordinates[0],
-        lat: d.position.coordinates[1],
-        alt: d.altitudeKm,
-      }))
-    );
+    const result = docs.map((d) => ({
+      ts: d.ts.getTime(),
+      lon: d.position.coordinates[0],
+      lat: d.position.coordinates[1],
+      alt: d.altitudeKm,
+    }));
+    console.log(`[API] Sending ${result.length} items from Mongo to client for satId=${satId}`);
+    return res.json(result);
+
   } catch (err) {
-    console.error('[API Error]', err);
+    console.error(`[API Error] Forecast endpoint failed for satId=${satId}`, err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// 6. Serve React Build in Production
-// ─────────────────────────────────────────────────────────────
 if (process.env.NODE_ENV === 'production') {
   const clientBuildPath = path.join(__dirname, 'client', 'build');
   app.use(express.static(clientBuildPath));
