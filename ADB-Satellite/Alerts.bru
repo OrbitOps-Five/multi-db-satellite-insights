@@ -6,6 +6,14 @@ meta {
 
 post {
   url: http://localhost:5000/api/alerts/register
-  body: none
+  body: json
   auth: none
+}
+
+body:json {
+  {
+    "lat": 52.52,
+    "lon": 13.405,
+    "user_id": "nikhil"
+  }
 }
