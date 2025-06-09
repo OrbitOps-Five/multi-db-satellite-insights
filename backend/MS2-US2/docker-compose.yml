@@ -1,0 +1,21 @@
+version: "3.8"
+services:
+  mongo:
+    image: mongo:latest
+    container_name: mongo-local
+    ports: [ "27017:27017" ]
+    volumes: [ "mongo_data:/data/db" ]
+  redis:
+    image: redis:7-alpine
+    container_name: redis-local
+    ports: [ "6379:6379" ]
+    volumes: [ "redis_data:/data" ]
+  # api:
+  #   build: .
+  #   container_name: sat-api
+  #   ports: [ "3000:3000" ]
+  #   env_file: [ ".env" ]
+  #   depends_on: [ "mongo", "redis" ]
+volumes:
+  mongo_data:
+  redis_data:
