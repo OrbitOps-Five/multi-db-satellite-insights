@@ -10,16 +10,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 
-
 @Service
 public class SatilliteService {
     private WebClient webClient;
     private SatellieTleRepository repository;
+    private SatellitePositionCalculationService satellitePositionCalculationService;
+
 
     @Autowired
-    public SatilliteService(WebClient webClient, SatellieTleRepository repository) {
+    public SatilliteService(WebClient webClient, SatellieTleRepository repository, SatellitePositionCalculationService satellitePositionCalculationService) {
         this.webClient = webClient;
         this.repository = repository;
+        this.satellitePositionCalculationService = satellitePositionCalculationService;
     }
 
 
@@ -27,8 +29,9 @@ public class SatilliteService {
         String url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle";
         String result = webClient.get().uri(url).retrieve().bodyToMono(String.class).block();
         List<SatelliteTle> satilliteList = parsing(result);
-
+        System.out.println("Inserting to mango DB");
         repository.saveAll(satilliteList);
+        satellitePositionCalculationService.setTleReady(true);
         return "Satillite Metadata added successfully";
 
     }

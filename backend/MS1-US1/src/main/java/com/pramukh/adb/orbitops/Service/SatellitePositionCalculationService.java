@@ -3,6 +3,7 @@ package com.pramukh.adb.orbitops.Service;
 import com.pramukh.adb.orbitops.DTO.SatellitePositionDTO;
 import com.pramukh.adb.orbitops.Model.SatelliteTle;
 import com.pramukh.adb.orbitops.Repository.SatellieTleRepository;
+import lombok.Setter;
 import org.orekit.bodies.GeodeticPoint;
 import org.orekit.bodies.OneAxisEllipsoid;
 import org.orekit.data.DataContext;
@@ -29,10 +30,12 @@ import java.util.concurrent.TimeUnit;
 
 @Service
 public class SatellitePositionCalculationService {
+    int count = 0;
     private SatellieTleRepository satellieTleRepository;
     private StringRedisTemplate stringRedisTemplate;
     private SimpMessagingTemplate template;
-    int count = 0;
+    @Setter
+    private volatile boolean TleReady = false;
 
     @Autowired
     public SatellitePositionCalculationService(SatellieTleRepository satellieTleRepository, StringRedisTemplate stringRedisTemplate, SimpMessagingTemplate template) {
@@ -41,10 +44,12 @@ public class SatellitePositionCalculationService {
         this.template = template;
     }
 
-
-
     @Scheduled(fixedRate = 30000)
     public void calculatePositions() {
+        if (!TleReady) {
+            System.out.println("Tle Data not inserted yet");
+            return;
+        }
         List<SatelliteTle> satilliteList = satellieTleRepository.findAll();
         List<SatellitePositionDTO> positions = new ArrayList<>();
         File orekitData = new File("src/main/resources/orekit-data-main");
