@@ -19,6 +19,7 @@ import org.orekit.utils.PVCoordinates;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -31,6 +32,7 @@ public class SatellitePositionCalculationService {
     private SatellieTleRepository satellieTleRepository;
     private StringRedisTemplate stringRedisTemplate;
     private SimpMessagingTemplate template;
+    int count = 0;
 
     @Autowired
     public SatellitePositionCalculationService(SatellieTleRepository satellieTleRepository, StringRedisTemplate stringRedisTemplate, SimpMessagingTemplate template) {
@@ -41,7 +43,7 @@ public class SatellitePositionCalculationService {
 
 
 
-
+    @Scheduled(fixedRate = 30000)
     public void calculatePositions() {
         List<SatelliteTle> satilliteList = satellieTleRepository.findAll();
         List<SatellitePositionDTO> positions = new ArrayList<>();
@@ -58,13 +60,13 @@ public class SatellitePositionCalculationService {
             PVCoordinates pvCoordinates = propagator.getPVCoordinates(currentDate, earthFrame);
             GeodeticPoint point = earth.transform(pvCoordinates.getPosition(), earthFrame, currentDate);
 
-            double lat = Math.toDegrees(point.getLatitude());    // in degrees
-            double lon = Math.toDegrees(point.getLongitude());  // in degrees
+            double lat = Math.toDegrees(point.getLatitude());
+            double lon = Math.toDegrees(point.getLongitude());
             double alt = (point.getAltitude() / 1000);
 
             String redisKey = "sat:" + sat.getSatilliteName();
             String redisValue = String.format("{\"name\":\"%s\",\"lat\":%.6f,\"lon\":%.6f,\"alt\":%.2f}", sat.getSatilliteName(), lat, lon, alt);
-            stringRedisTemplate.opsForValue().set(redisKey, redisValue, 30, TimeUnit.MINUTES);
+            stringRedisTemplate.opsForValue().set(redisKey, redisValue, 45, TimeUnit.SECONDS);
 
             SatellitePositionDTO position = new SatellitePositionDTO();
             position.setNoradID(sat.getNoradID());
@@ -75,7 +77,9 @@ public class SatellitePositionCalculationService {
 
             positions.add(position);
         }
-        System.out.println("Broadcasting " + positions.size() + " satellite positions to /topic/positions");
+        //System.out.println("Broadcasting " + positions.size() + " satellite positions to /topic/positions");
+        System.out.println("Brodcasted " + count + "times");
+        count++;
         template.convertAndSend("/topic/positions", positions);
     }
 }
