@@ -1,23 +1,20 @@
-import React, { useEffect, useRef } from 'react'
-import { createCesiumViewer } from './cesium/initCesium'
+// client/src/App.jsx
+import React from 'react';
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
+import HomePage from './pages/HomePage';
+import ForecastPage from './pages/ForecastPage';
+import LivePage from './pages/LivePage';
 
 export default function App() {
-  const container = useRef(null)
-  const viewer = useRef(null)
-
-  useEffect(() => {
-    // Initialize Cesium in the <div>
-    viewer.current = createCesiumViewer(container.current)
-
-    return () => {
-      if (viewer.current) viewer.current.destroy()
-    }
-  }, [])
-
   return (
-    <div
-      ref={container}
-      style={{ width: '100vw', height: '100vh', margin: 0, padding: 0 }}
-    />
-  )
+    <BrowserRouter>
+      <div style={{ position: 'fixed', top: 40, bottom: 0, width: '100%' }}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/forecast" element={<ForecastPage />} />
+          <Route path="/live" element={<LivePage />} />
+        </Routes>
+      </div>
+    </BrowserRouter>
+  );
 }
