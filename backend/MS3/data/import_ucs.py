@@ -21,21 +21,26 @@ def import_ucs():
                 if pd.isna(name) or not str(name).strip():
                     continue
 
+                constellation = row.get("Purpose", "").strip() or "Unknown"
+                manufacturer = row.get("Contractor", "").strip() or "Unknown"
+                country = row.get("Country of Operator/Owner", "").strip() or "Unknown"
+                orbit = row.get("Class of Orbit", "").strip() or "Unknown"
+
                 session.run(
                     """
                     MERGE (s:Satellite {name: $name})
-                    SET s.country = $country,
-                        s.purpose = $purpose,
-                        s.contractor = $contractor,
+                    SET s.constellation = $constellation,
+                        s.manufacturer = $manufacturer,
+                        s.country_of_operator = $country,
                         s.orbit_class = $orbit,
                         s.source = "UCS"
                     """,
                     {
                         "name": str(name).strip(),
-                        "country": str(row.get("Country of Operator/Owner", "")).strip(),
-                        "purpose": str(row.get("Users", "")).strip(),
-                        "contractor": str(row.get("Contractor", "")).strip(),
-                        "orbit": str(row.get("Class of Orbit", "")).strip()
+                        "country": country,
+                        "manufacturer": manufacturer,
+                        "orbit": orbit,
+                        "constellation": constellation
                     }
                 )
                 count += 1

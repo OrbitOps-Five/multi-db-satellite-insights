@@ -44,9 +44,11 @@ def import_celestrak():
                     MERGE (s:Satellite {name: $name})
                     SET s.tle1 = $tle1,
                         s.tle2 = $tle2,
-                        s.source = "Celestrak"
-                    MERGE (c:Constellation {name: $constellation})
-                    MERGE (s)-[:PART_OF]->(c)
+                        s.source = "Celestrak",
+                        s.constellation = $constellation,
+                        s.manufacturer = "Unknown",
+                        s.country_of_operator = "Unknown",
+                        s.orbit_class = "Unknown"
                     """,
                     {
                         "name": sat["name"],

@@ -56,7 +56,11 @@ def import_spacetrack():
                         MERGE (s:Satellite {name: $name})
                         SET s.tle1 = $tle1,
                             s.tle2 = $tle2,
-                            s.source = "SpaceTrack"
+                            s.source = "SpaceTrack",
+                            s.constellation = "Unknown",
+                            s.manufacturer = "Unknown",
+                            s.country_of_operator = "Unknown",
+                            s.orbit_class = "Unknown"
                         """,
                         {
                             "name": sat["name"],
