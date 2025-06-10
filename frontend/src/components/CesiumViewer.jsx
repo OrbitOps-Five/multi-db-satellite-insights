@@ -25,7 +25,7 @@ export default function CesiumViewer({ onViewerReady, style }) {
                     position: 'absolute',
                     top: 10,
                     left: 10,
-                    zIndex: 1,
+                    zIndex: 1000,       // ensure button sits above the Cesium canvas
                     padding: '8px 12px',
                     background: '#fff',
                     border: '1px solid #ccc',
@@ -39,10 +39,14 @@ export default function CesiumViewer({ onViewerReady, style }) {
             <div
                 ref={containerRef}
                 style={{
+                    position: 'absolute', // stack below the button
+                    top: 0,
+                    left: 0,
                     width: '100%',
                     height: '100%',
                     margin: 0,
                     padding: 0,
+                    zIndex: 0,
                     ...style
                 }}
             />
