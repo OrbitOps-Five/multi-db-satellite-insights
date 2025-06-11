@@ -130,6 +130,7 @@ export default function LivePage() {
 
     return (
         <div style={{ display: 'flex', height: '100vh' }}>
+            {/* Sidebar */}
             <div
                 style={{
                     width: sidebarOpen ? '300px' : '60px',
@@ -138,6 +139,7 @@ export default function LivePage() {
                     transition: 'width 0.3s',
                     display: 'flex',
                     flexDirection: 'column',
+                    zIndex: 1000
                 }}
             >
                 {!sidebarOpen ? (
@@ -170,19 +172,7 @@ export default function LivePage() {
                                 ✖
                             </button>
                         </div>
-                        <div style={{ padding: '10px' }}>
-                            <label htmlFor="type-select">Filter by Type</label>
-                            <select id="type-select" value={selectedType} onChange={handleTypeFilterChange}>
-                                <option value="">-- Select Type --</option>
-                                <option value="communication">Communication</option>
-                                <option value="earth_observation">Earth Observation</option>
-                                <option value="navigation">Navigation</option>
-                                <option value="scientific">Scientific</option>
-                                <option value="military">Military</option>
-                                <option value="cubesat">CubeSat</option>
-                            </select>
-                        </div>
-                        <div style={{ padding: '10px', overflowY: 'auto', maxHeight: 'calc(100vh - 160px)' }}>
+                        <div style={{ padding: '10px', overflowY: 'auto', maxHeight: 'calc(100vh - 60px)' }}>
                             {launchData &&
                                 launchData.map((launch, idx) => (
                                     <div
@@ -204,6 +194,42 @@ export default function LivePage() {
                 )}
             </div>
 
+            {/* Filter UI - Always visible */}
+            <div style={{
+                position: 'absolute',
+                top: 10,
+                left: sidebarOpen ? 320 : 80,
+                zIndex: 2000,
+                backgroundColor: '#222',
+                color: '#fff',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                boxShadow: '0 0 5px rgba(0,0,0,0.3)'
+            }}>
+                <label htmlFor="type-select" style={{ marginRight: '6px' }}>Filter by Type:</label>
+                <select
+                    id="type-select"
+                    value={selectedType}
+                    onChange={handleTypeFilterChange}
+                    style={{
+                        backgroundColor: '#333',
+                        color: '#fff',
+                        border: '1px solid #666',
+                        padding: '4px 8px',
+                        borderRadius: '4px'
+                    }}
+                >
+                    <option value="">-- Select Type --</option>
+                    <option value="communication">Communication</option>
+                    <option value="earth_observation">Earth Observation</option>
+                    <option value="navigation">Navigation</option>
+                    <option value="scientific">Scientific</option>
+                    <option value="military">Military</option>
+                    <option value="cubesat">CubeSat</option>
+                </select>
+            </div>
+
+            {/* Cesium Viewer */}
             <div style={{ flex: 1 }}>
                 <CesiumViewer
                     onViewerReady={handleViewerReady}
