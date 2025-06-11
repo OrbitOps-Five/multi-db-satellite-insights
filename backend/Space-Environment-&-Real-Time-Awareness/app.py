@@ -5,8 +5,11 @@ from services.reentry import get_decay_data
 from services.launch_history import get_combined_launch_history
 from services.satellite_filter import get_satellites_by_type
 from bson import ObjectId
+from flask import Flask
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 
 # Satellite visibility alert registration
 @app.route("/api/alerts/register", methods=["POST"])
