@@ -1,16 +1,16 @@
-# services/satellite_filter.py
-
 from skyfield.api import load
+from pymongo import MongoClient
+import os
 from collections import defaultdict
 
-# Basic keyword-based mapping (can be improved with NORAD metadata later)
 SATELLITE_TYPE_KEYWORDS = {
-    "communication": ["COM", "SATCOM", "TEL", "INTELSAT"],
-    "earth_observation": ["LANDSAT", "EOS", "RESURS", "EROS"],
+    "communication": ["STARLINK", "IRIDIUM", "TELSTAR", "INTELSAT", "SATCOM"],
+    "earth_observation": ["SENTINEL", "LANDSAT", "RESURS", "EROS"],
     "navigation": ["GPS", "GLONASS", "GALILEO", "BEIDOU"],
-    "scientific": ["SCI", "EXPLORER", "OBSERVATORY", "ASTRO"],
-    "military": ["MIL", "USA", "NROL", "KH"],
-    "cubesat": ["CUBESAT", "1U", "2U", "3U", "NANOSAT"],
+    "scientific": ["HUBBLE", "EXPLORER", "OBSERVATORY", "TIANHE", "TIANZHOU", "CSS"],
+    "military": ["USA", "COSMOS", "NROL", "KH"],
+    "crew_vehicle": ["CREW DRAGON", "SOYUZ", "TIANZHOU", "PROGRESS"],
+    "space_station": ["ISS", "CSS", "TIANHE", "NAUKA", "WENTIAN", "MENGTIAN"],
 }
 
 def get_satellite_type(name):
@@ -33,7 +33,7 @@ def filter_satellites_by_type(target_type):
     for sat in satellites:
         try:
             sat_type = get_satellite_type(sat.name)
-            if sat_type == target_type:
+            if target_type == "" or sat_type == target_type:
                 geocentric = sat.at(now)
                 subpoint = geocentric.subpoint()
                 filtered.append({
@@ -46,8 +46,25 @@ def filter_satellites_by_type(target_type):
         except Exception as e:
             print(f"[DEBUG] Error processing {sat.name}: {e}")
 
+    print(f"[DEBUG] Found {len(filtered)} satellites of type '{target_type or 'ALL'}'")
     return filtered
 
-def get_satellites_by_type():
-    # Your code here
-    return result
+def get_satellites_by_type(target_type):
+    results = filter_satellites_by_type(target_type)
+
+    try:
+        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+        client = MongoClient(mongo_uri)
+        db = client["satellite_db"]
+        collection = db["filtered_satellites"]
+
+        # optional: remove existing entries for this type
+        collection.delete_many({"type": target_type}) if target_type else None
+
+        if results:
+            collection.insert_many(results)
+            print(f"[MongoDB] Inserted {len(results)} satellites of type '{target_type}'")
+    except Exception as e:
+        print(f"[MongoDB] Error inserting filtered satellites: {e}")
+
+    return results

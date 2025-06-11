@@ -1,52 +1,61 @@
-# services/reentry.py
-
 import requests
-import os
-from datetime import datetime, timedelta
-from requests.exceptions import RequestException
+from bs4 import BeautifulSoup
+from pymongo import MongoClient
+import logging
 
-def fetch_recent_reentries(limit=10):
-    base_url = "https://www.space-track.org"
-    login_url = f"{base_url}/ajaxauth/login"
-    data_url = f"{base_url}/basicspacedata/query/class/decay/orderby/DECAY%20desc/limit/{limit}/format/json"
+def fetch_recent_reentries():
+    url = "https://celestrak.org/satcat/decayed-with-last.php"
+    response = requests.get(url)
+    html = response.text
 
-    username = os.getenv("SPACETRACK_USER")
-    password = os.getenv("SPACETRACK_PASS")
+    # Save for debug
+    with open("debug_celestrak.html", "w", encoding="utf-8") as f:
+        f.write(html)
 
-    if not username or not password:
-        raise EnvironmentError("SPACETRACK_USER or SPACETRACK_PASS not set in environment variables.")
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.find("table", {"id": "tableID"})
 
-    try:
-        session = requests.Session()
-        login_resp = session.post(login_url, data={"identity": username, "password": password})
-
-        if login_resp.status_code != 200:
-            raise ConnectionError(f"Login failed: {login_resp.status_code} - {login_resp.text}")
-
-        reentry_resp = session.get(data_url)
-        reentry_resp.raise_for_status()
-        data = reentry_resp.json()
-
-        formatted = [
-            {
-                "name": item.get("OBJECT_NAME"),
-                "id": item.get("NORAD_CAT_ID"),
-                "decay_date": item.get("DECAY"),
-                "launch_date": item.get("LAUNCH"),
-                "site": item.get("SITE"),
-                "decayed": True
-            }
-            for item in data
-        ]
-        return formatted
-
-    except RequestException as e:
-        print(f"[ERROR] Request failed: {e}")
-        return []
-    except Exception as ex:
-        print(f"[ERROR] Unexpected error: {ex}")
+    if not table:
+        logging.debug("Decay table not found.")
         return []
 
-# ✅ Wrapper function for app.py import
+    rows = table.find("tbody").find_all("tr")
+    satellites = []
+
+    for row in rows:
+        cols = row.find_all("td")
+        if len(cols) < 8:
+            continue  # Skip malformed row
+
+        satellite = {
+            "intl_designator": cols[0].text.strip(),
+            "norad_cat_id": cols[1].text.strip(),
+            "name": cols[2].text.strip(),
+            "source": cols[3].text.strip(),
+            "launch_date": cols[4].text.strip(),
+            "launch_site": cols[5].text.strip(),
+            "decay_date": cols[6].text.strip(),
+            "last_data": cols[7].text.strip().split(" ")[0]  # Strip any extra icon text
+        }
+
+        satellites.append(satellite)
+
+    logging.debug(f"Parsed {len(satellites)} decayed satellites.")
+    return satellites
+
 def get_decay_data():
-    return fetch_recent_reentries()
+    logging.basicConfig(level=logging.DEBUG)
+    data = fetch_recent_reentries()
+    
+    if not data:
+        logging.debug("[MongoDB] No data to insert.")
+        return []
+
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client["satellite_db"]
+    collection = db["decay_data"]
+
+    collection.delete_many({})
+    collection.insert_many(data)
+    logging.debug(f"[MongoDB] Inserted {len(data)} entries.")
+    return data
