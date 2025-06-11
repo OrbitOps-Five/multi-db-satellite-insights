@@ -48,6 +48,31 @@ def filter_satellites_by_type(target_type):
 
     return filtered
 
-def get_satellites_by_type():
-    # Your code here
-    return result
+def get_satellites_by_type(target_type=None):
+    url = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle'
+    satellites = load.tle_file(url)
+    print(f"[DEBUG] Loaded {len(satellites)} satellites from TLE")
+
+    ts = load.timescale()
+    now = ts.now()
+    filtered = []
+
+    for sat in satellites:
+        try:
+            sat_type = get_satellite_type(sat.name)
+            if target_type is None or sat_type == target_type:
+                geocentric = sat.at(now)
+                subpoint = geocentric.subpoint()
+                filtered.append({
+                    "name": sat.name,
+                    "latitude": round(subpoint.latitude.degrees, 2),
+                    "longitude": round(subpoint.longitude.degrees, 2),
+                    "altitude_km": round(subpoint.elevation.km, 2),
+                    "tle_line1": sat.line1,
+                    "tle_line2": sat.line2,
+                    "type": sat_type,
+                })
+        except Exception as e:
+            print(f"[DEBUG] Error processing {sat.name}: {e}")
+
+    return filtered

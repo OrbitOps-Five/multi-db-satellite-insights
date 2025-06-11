@@ -1,17 +1,36 @@
 # services/congestion.py
 
-from skyfield.api import load
+from skyfield.api import EarthSatellite, load
 from collections import defaultdict
 from pymongo import MongoClient
 import os
 from bson import ObjectId
+import requests
 
 
 def fetch_tle_data():
     url = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle'
-    satellites = load.tle_file(url)
-    print(f"[DEBUG] Loaded {len(satellites)} satellites from TLE")
+    response = requests.get(url)
+    lines = response.text.strip().splitlines()
+
+    satellites = []
+
+    for i in range(0, len(lines) - 2, 3):
+        name = lines[i].strip()
+        line1 = lines[i + 1].strip()
+        line2 = lines[i + 2].strip()
+
+        try:
+            sat = EarthSatellite(line1, line2, name)
+            sat.line1 = line1  # Attach for frontend use
+            sat.line2 = line2
+            satellites.append(sat)
+        except Exception as e:
+            print(f"[DEBUG] Skipping invalid TLE for {name}: {e}")
+
+    print(f"[DEBUG] Loaded {len(satellites)} valid TLE satellites")
     return satellites
+
 
 def classify_congestion(count):
     if count < 100:
@@ -20,6 +39,7 @@ def classify_congestion(count):
         return "Medium"
     else:
         return "High"
+
 
 def cluster_by_altitude(satellites, bins=None):
     if bins is None:
@@ -47,7 +67,10 @@ def cluster_by_altitude(satellites, bins=None):
                 if low <= alt_km < high:
                     clustered[zone].append({
                         "name": sat.name,
-                        "altitude": round(alt_km, 2)
+                        "altitude": round(alt_km, 2),
+                        "tle_line1": sat.line1,
+                        "tle_line2": sat.line2,
+                        "type": "LEO" if "LEO" in zone else zone
                     })
         except Exception as e:
             print(f"[DEBUG] Error processing {sat.name}: {e}")
@@ -62,8 +85,10 @@ def cluster_by_altitude(satellites, bins=None):
 
     return output
 
+
 def sanitize_mongo_doc(doc):
     return {k: str(v) if isinstance(v, ObjectId) else v for k, v in doc.items()}
+
 
 def get_congestion_data():
     satellites = fetch_tle_data()
@@ -78,8 +103,6 @@ def get_congestion_data():
         collection.delete_many({})
         inserted = collection.insert_one(result)
         print("[MongoDB] Congestion data stored successfully.")
-
-        # Sanitize result for JSON response
         result["_id"] = str(inserted.inserted_id)
 
     except Exception as e:

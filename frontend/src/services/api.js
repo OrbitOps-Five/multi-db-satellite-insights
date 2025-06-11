@@ -15,3 +15,10 @@ export async function fetchLaunchHistory() {
     if (!res.ok) throw new Error(res.statusText);
     return res.json();
 }
+
+export async function fetchSatellitesByType(type) {
+    const res = await fetch(`/api/satellites-by-type?type=${type}`);
+    if (!res.ok) throw new Error(res.statusText);
+    return res.json(); // Returns a list of { name, tle_line1, tle_line2, ... }
+}
+
