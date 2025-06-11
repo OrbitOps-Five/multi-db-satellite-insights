@@ -4,8 +4,11 @@ from services.congestion import get_congestion_data
 from services.reentry import get_decay_data
 from services.launch_history import get_combined_launch_history
 from services.satellite_filter import get_satellites_by_type  # ✅ Added
+from flask import Flask
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 
 # Route for satellite visibility alert
 @app.route("/api/alerts/register", methods=["POST"])

@@ -4,13 +4,12 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: 5173, // Frontend port
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:5000', // Flask backend
         changeOrigin: true,
       }
     }
-    // (No API proxy yet—only Cesium asset serving via public/)
   }
 })

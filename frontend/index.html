@@ -1,21 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <title>Cesium React Starter</title>
-  <!-- 1) Link Cesium’s widget CSS from public/cesium -->
+  
+  <!-- 1) Link Cesium CSS -->
   <link rel="stylesheet" href="/cesium/Widgets/widgets.css" />
-  <!-- 2) Tell Cesium where assets live -->
+
+  <!-- 2) Tell Cesium where to load assets -->
   <script>
     window.CESIUM_BASE_URL = '/cesium';
   </script>
+
+  <!-- 3) Load Cesium globally -->
+  <script src="/cesium/Cesium.js"></script>
 </head>
 
 <body>
   <div id="root"></div>
-  <!-- 3) Load Vite’s entry -->
+
+  <!-- 4) Load your app -->
   <script type="module" src="/src/main.jsx"></script>
 </body>
-
 </html>
