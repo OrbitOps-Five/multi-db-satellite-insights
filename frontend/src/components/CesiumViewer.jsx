@@ -46,3 +46,4 @@ export default function CesiumViewer({ onViewerReady, style }) {
     </div>
   );
 }
+
