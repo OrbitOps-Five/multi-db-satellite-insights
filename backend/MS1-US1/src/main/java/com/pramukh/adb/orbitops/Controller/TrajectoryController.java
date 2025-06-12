@@ -27,7 +27,7 @@ public class TrajectoryController {
         return ResponseEntity.ok("Trajectories generated and saved to MongoDB.");
     }
 
-    @CrossOrigin(origins = "http://localhost:5173")
+    @CrossOrigin(origins = "*")
     @GetMapping("/{noradID}")
     public ResponseEntity<TrajectoryDTO> getTrajectory(@PathVariable long noradID) {
         TrajectoryEntity entity = trajectoryCalculation.getTrajectoryByNoradId(noradID);
