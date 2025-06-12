@@ -4,7 +4,7 @@ import { fetchLaunchHistory } from '../services/api';
 import * as satellite from 'satellite.js';
 
 export default function LivePage() {
-    const [launchData, setLaunchData] = useState(null);
+    const [launchData, setLaunchData] = useState([]);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [selectedType, setSelectedType] = useState('communication');
     const viewerRef = useRef(null);
@@ -120,16 +120,18 @@ export default function LivePage() {
     const handleFetchLaunchHistory = async () => {
         try {
             const data = await fetchLaunchHistory();
-            setLaunchData(data);
+            const results = Array.isArray(data?.results) ? data.results : [];
+            setLaunchData(results);
             setSidebarOpen(true);
         } catch (error) {
             console.error('Failed to fetch launch history:', error);
+            setLaunchData([]);
         }
     };
-
+    
     const handleCloseSidebar = () => {
         setSidebarOpen(false);
-        setLaunchData(null);
+        setLaunchData([]);
     };
 
     const handleTypeFilterChange = (event) => {
@@ -186,7 +188,7 @@ export default function LivePage() {
                             </button>
                         </div>
                         <div style={{ padding: '10px', overflowY: 'auto', maxHeight: 'calc(100vh - 60px)' }}>
-                            {launchData &&
+                            {Array.isArray(launchData) && launchData.length > 0 ? (
                                 launchData.map((launch, idx) => (
                                     <div
                                         key={idx}
@@ -196,12 +198,15 @@ export default function LivePage() {
                                             paddingBottom: '5px',
                                         }}
                                     >
-                                        <div><strong>Mission:</strong> {launch.mission}</div>
-                                        <div><strong>Launch Date:</strong> {new Date(launch.date).toLocaleDateString()}</div>
-                                        <div><strong>Rocket:</strong> {launch.rocket}</div>
-                                        <div><strong>Agency:</strong> {launch.provider}</div>
+                                        <div><strong>Mission:</strong> {launch.mission || 'N/A'}</div>
+                                        <div><strong>Launch Date:</strong> {launch.date ? new Date(launch.date).toLocaleDateString() : 'N/A'}</div>
+                                        <div><strong>Rocket:</strong> {launch.rocket || 'N/A'}</div>
+                                        <div><strong>Agency:</strong> {launch.provider || 'N/A'}</div>
                                     </div>
-                                ))}
+                                ))
+                            ) : (
+                                <div style={{ color: '#888' }}>No launch data available.</div>
+                            )}
                         </div>
                     </>
                 )}
@@ -259,10 +264,10 @@ export default function LivePage() {
             </div>
 
             {/* Cesium Viewer */}
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, position: 'relative' }}>
                 <CesiumViewer
                     onViewerReady={handleViewerReady}
-                    style={{ position: 'absolute', top: 0, bottom: 0, width: '100%' }}
+                    style={{ width: '100%', height: '100%' }}
                 />
             </div>
         </div>
