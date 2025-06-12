@@ -1,5 +1,6 @@
 package com.pramukh.adb.orbitops.Controller;
 
+import com.pramukh.adb.orbitops.DTO.SatellitePositionDTO;
 import com.pramukh.adb.orbitops.Model.SatelliteTle;
 import com.pramukh.adb.orbitops.Service.SatellitePositionCalculationService;
 import com.pramukh.adb.orbitops.Service.SatilliteService;
@@ -34,8 +35,8 @@ public class SatilliteController {
     }
 
     @PostMapping("/calculatePositions")
-    public String Positions() {
-        satellitePositionCalculationService.calculatePositions();
-        return "Positions added successfully";
+    public List<SatellitePositionDTO> Positions() {
+        List<SatellitePositionDTO> positions = satellitePositionCalculationService.calculatePositions();
+        return positions;
     }
 }
