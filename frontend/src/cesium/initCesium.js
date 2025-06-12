@@ -1,9 +1,9 @@
 import * as Cesium from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 
-// Log to verify
-console.log('CESIUM_BASE_URL =', window.CESIUM_BASE_URL);
-console.log('Ion token =', import.meta.env.VITE_CESIUM_ION_TOKEN);
+console.log("CESIUM_BASE_URL =", window.CESIUM_BASE_URL);
+console.log("Ion token =", import.meta.env.VITE_CESIUM_ION_TOKEN);
+window.CESIUM_BASE_URL = "/cesium";
 
 // Set your Ion token
 Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN;
