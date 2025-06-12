@@ -18,7 +18,7 @@ public class StartupRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
-//        satilliteService.addSatilliteMetadata();
+        satilliteService.addSatilliteMetadata();
         trajectoryCalculation.storeTracjectories();
     }
 }
