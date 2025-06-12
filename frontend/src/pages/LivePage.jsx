@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import CesiumViewer from '../components/CesiumViewer';
 import * as Cesium from 'cesium';
 import SockJS from 'sockjs-client';
@@ -7,7 +7,10 @@ import Stomp from 'stompjs';
 export default function LivePage() {
   const cesiumSatellites = useRef({});
   const satelliteStore = useRef({});
-  const viewerReadyRef = useRef(null);
+  const viewerRef = useRef(null);
+  const orbitLineRef = useRef(null);
+  const heightLineRef = useRef(null);
+  const [selectedSatellite, setSelectedSatellite] = useState(null);
 
   const updateSatellite = useCallback((viewer, { id, name, lat, lon, alt }) => {
     const newPos = Cesium.Cartesian3.fromDegrees(lon, lat, alt * 1000);
@@ -51,7 +54,7 @@ export default function LivePage() {
       label: {
         show: false,
         text: name,
-        font: '14px sans-serif',
+        font: '16px sans-serif',
         fillColor: Cesium.Color.WHITE,
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
         outlineWidth: 2,
@@ -63,38 +66,12 @@ export default function LivePage() {
     cesiumSatellites.current[id] = { ...satellite, entity };
   }, []);
 
-  const renderSatellites = useCallback((viewer, data) => {
-    data.forEach(sat => {
-      satelliteStore.current[sat.noradID] = sat;
-      updateSatellite(viewer, {
-        id: sat.noradID,
-        name: sat.satelliteName,
-        lat: sat.latitude,
-        lon: sat.longitude,
-        alt: sat.altitude,
-      });
-    });
-  }, [updateSatellite]);
-
   const handleViewerReady = useCallback((viewer) => {
-    // Reset old state
     cesiumSatellites.current = {};
+    satelliteStore.current = {};
     viewer.entities.removeAll();
-    viewerReadyRef.current = viewer;
+    viewerRef.current = viewer;
 
-    // ✅ Replay latest snapshot from localStorage
-    const cached = localStorage.getItem("latestSatData");
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        renderSatellites(viewer, parsed);
-        console.log("✅ Re-rendered from localStorage");
-      } catch (e) {
-        console.warn("⚠️ Failed to parse cached satellite data");
-      }
-    }
-
-    // 🔄 Connect WebSocket
     const socket = new SockJS("http://localhost:8080/ws");
     const stompClient = Stomp.over(socket);
 
@@ -103,27 +80,89 @@ export default function LivePage() {
 
       stompClient.subscribe("/topic/positions", message => {
         const data = JSON.parse(message.body);
-        localStorage.setItem("latestSatData", JSON.stringify(data));
-        renderSatellites(viewer, data);
+
+        data.forEach(sat => {
+          satelliteStore.current[sat.noradID] = sat;
+          updateSatellite(viewer, {
+            id: sat.noradID,
+            name: sat.satelliteName,
+            lat: sat.latitude,
+            lon: sat.longitude,
+            alt: sat.altitude,
+          });
+        });
       });
     }, err => {
-      console.error("❌ WebSocket connection failed:", err);
+      console.error(" WebSocket connection failed:", err);
     });
 
-    // ℹ️ Popup on click
     viewer.screenSpaceEventHandler.setInputAction(movement => {
       const picked = viewer.scene.pick(movement.position);
       if (Cesium.defined(picked) && picked.id) {
         const sat = satelliteStore.current[picked.id.id];
         if (sat) {
-          alert(
-            `Name: ${sat.satelliteName}\nNORAD ID: ${sat.noradID}\nLat: ${sat.latitude.toFixed(2)}\nLon: ${sat.longitude.toFixed(2)}\nAlt: ${sat.altitude.toFixed(2)} km`
-          );
+          setSelectedSatellite(sat);
+
+          Object.values(cesiumSatellites.current).forEach(({ entity }) => {
+            entity.point.color = Cesium.Color.YELLOW;
+            entity.point.pixelSize = 10;
+          });
+
+          const selectedEntity = cesiumSatellites.current[sat.noradID]?.entity;
+          if (selectedEntity) {
+            selectedEntity.point.color = Cesium.Color.WHITE;
+            selectedEntity.point.pixelSize = 16;
+          }
+
+          fetch(`http://localhost:8080/api/trajectory/${sat.noradID}`)
+            .then(res => res.json())
+            .then(data => {
+              const positions = data.trajectory.map(pos =>
+                Cesium.Cartesian3.fromDegrees(pos.longitude, pos.latitude, pos.altitude * 1000)
+              );
+
+              if (orbitLineRef.current) {
+                viewer.entities.remove(orbitLineRef.current);
+              }
+
+              orbitLineRef.current = viewer.entities.add({
+                id: `orbit-${sat.noradID}`,
+                name: `${sat.satelliteName} Orbit`,
+                polyline: {
+                  positions,
+                  width: 5,
+                  material: Cesium.Color.WHITE.withAlpha(0.8),
+                },
+              });
+
+              if (heightLineRef.current) {
+                viewer.entities.remove(heightLineRef.current);
+              }
+              const groundPoint = Cesium.Cartesian3.fromDegrees(sat.longitude, sat.latitude, 0);
+              const satellitePoint = Cesium.Cartesian3.fromDegrees(sat.longitude, sat.latitude, sat.altitude * 1000);
+              heightLineRef.current = viewer.entities.add({
+                id: `height-${sat.noradID}`,
+                polyline: {
+                  positions: [groundPoint, satellitePoint],
+                  width: 2,
+                  material: Cesium.Color.WHITE.withAlpha(0.8),
+                },
+              });
+            });
+        }
+      } else {
+        setSelectedSatellite(null);
+        if (orbitLineRef.current) {
+          viewer.entities.remove(orbitLineRef.current);
+          orbitLineRef.current = null;
+        }
+        if (heightLineRef.current) {
+          viewer.entities.remove(heightLineRef.current);
+          heightLineRef.current = null;
         }
       }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-    // 🖱️ Hover effect
     viewer.screenSpaceEventHandler.setInputAction(movement => {
       const picked = viewer.scene.pick(movement.endPosition);
       viewer.entities.values.forEach(entity => {
@@ -131,14 +170,40 @@ export default function LivePage() {
       });
       if (Cesium.defined(picked) && picked.id && picked.id.label) {
         picked.id.label.show = true;
+        picked.id.label.font = '18px sans-serif';
+        picked.id.label.fillColor = Cesium.Color.WHITE;
       }
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
-  }, [renderSatellites]);
+  }, [updateSatellite]);
 
   return (
-    <CesiumViewer
-      onViewerReady={handleViewerReady}
-      style={{ position: 'absolute', top: 0, bottom: 0, width: '100%' }}
-    />
+    <div style={{ position: 'relative', height: '100vh' }}>
+      <CesiumViewer
+        onViewerReady={handleViewerReady}
+        style={{ position: 'absolute', top: 0, bottom: 50, width: '100%' }}
+      />
+
+      {selectedSatellite && (
+        <div style={{
+          position: 'absolute',
+          top: '40%',
+          left: 0,
+          transform: 'translateY(-50%)',
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          color: 'white',
+          padding: '15px',
+          fontSize: '15px',
+          borderTopRightRadius: '10px',
+          zIndex: 1000,
+          width: '220px',
+        }}>
+          <strong>{selectedSatellite.satelliteName}</strong><br />
+          NORAD: {selectedSatellite.noradID}<br />
+          Lat: {selectedSatellite.latitude.toFixed(2)}<br />
+          Lon: {selectedSatellite.longitude.toFixed(2)}<br />
+          Alt: {selectedSatellite.altitude.toFixed(2)} km
+        </div>
+      )}
+    </div>
   );
 }
