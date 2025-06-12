@@ -1,0 +1,10 @@
+flask
+skyfield
+pymongo
+redis
+requests
+beautifulsoup4
+lxml
+python-dotenv
+flask-cors
+gunicorn

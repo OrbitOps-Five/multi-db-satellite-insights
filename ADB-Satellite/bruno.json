@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "ADB-Satellite",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

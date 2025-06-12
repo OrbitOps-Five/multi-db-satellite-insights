@@ -1,0 +1,13 @@
+# Ignore the virtual environment
+venv/
+
+# Ignore Python cache and compiled files
+__pycache__/
+*.py[cod]
+
+# Ignore environment config files
+.env
+
+# Ignore OS/editor junk
+.DS_Store
+*.swp
