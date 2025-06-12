@@ -26,12 +26,13 @@ public class SatilliteService {
 
 
     public String addSatilliteMetadata() {
+        System.out.println("Adding to TLE Started.");
         String url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle";
         String result = webClient.get().uri(url).retrieve().bodyToMono(String.class).block();
         List<SatelliteTle> satilliteList = parsing(result);
         System.out.println("Inserting to mango DB");
         repository.saveAll(satilliteList);
-        satellitePositionCalculationService.setTleReady(true);
+//        satellitePositionCalculationService.setTleReady(true);
         return "Satillite Metadata added successfully";
 
     }

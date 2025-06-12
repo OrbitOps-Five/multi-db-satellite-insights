@@ -8,14 +8,17 @@ import org.springframework.stereotype.Component;
 @Component
 public class StartupRunner implements ApplicationRunner {
     private SatilliteService satilliteService;
+    private TrajectoryCalculation trajectoryCalculation;
 
     @Autowired
-    public StartupRunner(SatilliteService satilliteService) {
+    public StartupRunner(SatilliteService satilliteService, TrajectoryCalculation trajectoryCalculation) {
         this.satilliteService = satilliteService;
+        this.trajectoryCalculation = trajectoryCalculation;
     }
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
         satilliteService.addSatilliteMetadata();
+        trajectoryCalculation.storeTracjectories();
     }
 }

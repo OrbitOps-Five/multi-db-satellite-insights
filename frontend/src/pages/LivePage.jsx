@@ -1,270 +1,209 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import CesiumViewer from '../components/CesiumViewer';
-import { fetchLaunchHistory } from '../services/api';
-import * as satellite from 'satellite.js';
+import * as Cesium from 'cesium';
+import SockJS from 'sockjs-client';
+import Stomp from 'stompjs';
 
 export default function LivePage() {
-    const [launchData, setLaunchData] = useState(null);
-    const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [selectedType, setSelectedType] = useState('communication');
-    const viewerRef = useRef(null);
+  const cesiumSatellites = useRef({});
+  const satelliteStore = useRef({});
+  const viewerRef = useRef(null);
+  const orbitLineRef = useRef(null);
+  const heightLineRef = useRef(null);
+  const [selectedSatellite, setSelectedSatellite] = useState(null);
 
-    useEffect(() => {
-        if (viewerRef.current) {
-            loadSatellites(selectedType);
-        }
-    }, [selectedType]);
+  const updateSatellite = useCallback((viewer, { id, name, lat, lon, alt }) => {
+    const newPos = Cesium.Cartesian3.fromDegrees(lon, lat, alt * 1000);
+    const now = Date.now();
 
-    const loadSatellites = async (type) => {
-        const viewer = viewerRef.current;
-        if (!viewer || !window.Cesium || !type) return;
+    if (cesiumSatellites.current[id]) {
+      const sat = cesiumSatellites.current[id];
+      sat.from = sat.to || newPos;
+      sat.to = newPos;
+      sat.lastUpdate = now;
+      return;
+    }
 
-        const Cesium = window.Cesium;
-        const res = await fetch(`/api/satellites?type=${type}`);
-        const satellites = await res.json();
+    const satellite = {
+      id,
+      name,
+      from: newPos,
+      to: newPos,
+      lastUpdate: now,
+    };
 
-        viewer.entities.removeAll();
-        const satelliteEntities = [];
+    const entity = viewer.entities.add({
+      id,
+      name,
+      position: new Cesium.CallbackProperty(() => {
+        const t = (Date.now() - satellite.lastUpdate) / 30000;
+        const clampedT = Math.min(t, 1.0);
+        return Cesium.Cartesian3.lerp(
+          satellite.from,
+          satellite.to,
+          clampedT,
+          new Cesium.Cartesian3()
+        );
+      }, false),
+      point: {
+        pixelSize: 10,
+        color: Cesium.Color.YELLOW,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 1,
+      },
+      label: {
+        show: false,
+        text: name,
+        font: '16px sans-serif',
+        fillColor: Cesium.Color.WHITE,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        outlineWidth: 2,
+        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+        pixelOffset: new Cesium.Cartesian2(0, -12),
+      },
+    });
 
-        satellites.forEach(({ name, tle_line1, tle_line2, type }) => {
-            if (!tle_line1 || !tle_line2) return;
+    cesiumSatellites.current[id] = { ...satellite, entity };
+  }, []);
 
-            const satrec = satellite.twoline2satrec(tle_line1, tle_line2);
+  const handleViewerReady = useCallback((viewer) => {
+    cesiumSatellites.current = {};
+    satelliteStore.current = {};
+    viewer.entities.removeAll();
+    viewerRef.current = viewer;
 
-            const entity = viewer.entities.add({
-                name,
-                position: new Cesium.CallbackProperty(() => {
-                    const now = new Date();
-                    const posVel = satellite.propagate(satrec, now);
-                    if (!posVel.position) return null;
+    const socket = new SockJS("http://localhost:8080/ws");
+    const stompClient = Stomp.over(socket);
 
-                    const gmst = satellite.gstime(now);
-                    const geo = satellite.eciToGeodetic(posVel.position, gmst);
-                    return Cesium.Cartesian3.fromDegrees(
-                        Cesium.Math.toDegrees(geo.longitude),
-                        Cesium.Math.toDegrees(geo.latitude),
-                        geo.height * 1000
-                    );
-                }, false),
-                point: {
-                    pixelSize: 8,
-                    color: Cesium.Color.CYAN,
-                    outlineColor: Cesium.Color.BLACK,
-                    outlineWidth: 1,
-                    heightReference: Cesium.HeightReference.NONE
+    stompClient.connect({}, frame => {
+      console.log("✅ STOMP connected:", frame);
+
+      stompClient.subscribe("/topic/positions", message => {
+        const data = JSON.parse(message.body);
+
+        data.forEach(sat => {
+          satelliteStore.current[sat.noradID] = sat;
+          updateSatellite(viewer, {
+            id: sat.noradID,
+            name: sat.satelliteName,
+            lat: sat.latitude,
+            lon: sat.longitude,
+            alt: sat.altitude,
+          });
+        });
+      });
+    }, err => {
+      console.error(" WebSocket connection failed:", err);
+    });
+
+    viewer.screenSpaceEventHandler.setInputAction(movement => {
+      const picked = viewer.scene.pick(movement.position);
+      if (Cesium.defined(picked) && picked.id) {
+        const sat = satelliteStore.current[picked.id.id];
+        if (sat) {
+          setSelectedSatellite(sat);
+
+          Object.values(cesiumSatellites.current).forEach(({ entity }) => {
+            entity.point.color = Cesium.Color.YELLOW;
+            entity.point.pixelSize = 10;
+          });
+
+          const selectedEntity = cesiumSatellites.current[sat.noradID]?.entity;
+          if (selectedEntity) {
+            selectedEntity.point.color = Cesium.Color.WHITE;
+            selectedEntity.point.pixelSize = 16;
+          }
+
+          fetch(`http://localhost:8080/api/trajectory/${sat.noradID}`)
+            .then(res => res.json())
+            .then(data => {
+              const positions = data.trajectory.map(pos =>
+                Cesium.Cartesian3.fromDegrees(pos.longitude, pos.latitude, pos.altitude * 1000)
+              );
+
+              if (orbitLineRef.current) {
+                viewer.entities.remove(orbitLineRef.current);
+              }
+
+              orbitLineRef.current = viewer.entities.add({
+                id: `orbit-${sat.noradID}`,
+                name: `${sat.satelliteName} Orbit`,
+                polyline: {
+                  positions,
+                  width: 5,
+                  material: Cesium.Color.WHITE.withAlpha(0.8),
                 },
-                description: `Type: ${type}`,
+              });
+
+              if (heightLineRef.current) {
+                viewer.entities.remove(heightLineRef.current);
+              }
+              const groundPoint = Cesium.Cartesian3.fromDegrees(sat.longitude, sat.latitude, 0);
+              const satellitePoint = Cesium.Cartesian3.fromDegrees(sat.longitude, sat.latitude, sat.altitude * 1000);
+              heightLineRef.current = viewer.entities.add({
+                id: `height-${sat.noradID}`,
+                polyline: {
+                  positions: [groundPoint, satellitePoint],
+                  width: 2,
+                  material: Cesium.Color.WHITE.withAlpha(0.8),
+                },
+              });
             });
-
-            satelliteEntities.push(entity);
-        });
-
-        viewer.zoomTo(satelliteEntities);
-    };
-
-    const handleShowCongestion = async () => {
-        const viewer = viewerRef.current;
-        if (!viewer || !window.Cesium) return;
-
-        const Cesium = window.Cesium;
-        const res = await fetch('/api/orbit-heatmap');
-        const data = await res.json();
-
-        viewer.entities.removeAll();
-        const satelliteEntities = [];
-
-        Object.entries(data).forEach(([band, { satellites, congestion }]) => {
-            const color = congestion === 'High'
-                ? Cesium.Color.RED
-                : congestion === 'Medium'
-                ? Cesium.Color.YELLOW
-                : Cesium.Color.GREEN;
-
-            satellites.forEach(({ name, tle_line1, tle_line2, type }) => {
-                if (!tle_line1 || !tle_line2) return;
-
-                const satrec = satellite.twoline2satrec(tle_line1, tle_line2);
-
-                const entity = viewer.entities.add({
-                    name,
-                    position: new Cesium.CallbackProperty(() => {
-                        const now = new Date();
-                        const posVel = satellite.propagate(satrec, now);
-                        if (!posVel.position) return null;
-
-                        const gmst = satellite.gstime(now);
-                        const geo = satellite.eciToGeodetic(posVel.position, gmst);
-                        return Cesium.Cartesian3.fromDegrees(
-                            Cesium.Math.toDegrees(geo.longitude),
-                            Cesium.Math.toDegrees(geo.latitude),
-                            geo.height * 1000
-                        );
-                    }, false),
-                    point: {
-                        pixelSize: 6,
-                        color,
-                        outlineColor: Cesium.Color.BLACK,
-                        outlineWidth: 1,
-                        heightReference: Cesium.HeightReference.NONE
-                    },
-                    description: `Type: ${type}`,
-                });
-
-                satelliteEntities.push(entity);
-            });
-        });
-
-        viewer.zoomTo(satelliteEntities);
-    };
-
-    const handleFetchLaunchHistory = async () => {
-        try {
-            const data = await fetchLaunchHistory();
-            setLaunchData(data);
-            setSidebarOpen(true);
-        } catch (error) {
-            console.error('Failed to fetch launch history:', error);
         }
-    };
+      } else {
+        setSelectedSatellite(null);
+        if (orbitLineRef.current) {
+          viewer.entities.remove(orbitLineRef.current);
+          orbitLineRef.current = null;
+        }
+        if (heightLineRef.current) {
+          viewer.entities.remove(heightLineRef.current);
+          heightLineRef.current = null;
+        }
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-    const handleCloseSidebar = () => {
-        setSidebarOpen(false);
-        setLaunchData(null);
-    };
+    viewer.screenSpaceEventHandler.setInputAction(movement => {
+      const picked = viewer.scene.pick(movement.endPosition);
+      viewer.entities.values.forEach(entity => {
+        if (entity.label) entity.label.show = false;
+      });
+      if (Cesium.defined(picked) && picked.id && picked.id.label) {
+        picked.id.label.show = true;
+        picked.id.label.font = '18px sans-serif';
+        picked.id.label.fillColor = Cesium.Color.WHITE;
+      }
+    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+  }, [updateSatellite]);
 
-    const handleTypeFilterChange = (event) => {
-        setSelectedType(event.target.value);
-    };
+  return (
+    <div style={{ position: 'relative', height: '100vh' }}>
+      <CesiumViewer
+        onViewerReady={handleViewerReady}
+        style={{ position: 'absolute', top: 0, bottom: 50, width: '100%' }}
+      />
 
-    const handleViewerReady = (viewer) => {
-        viewerRef.current = viewer;
-        loadSatellites(selectedType);
-    };
-
-    return (
-        <div style={{ display: 'flex', height: '100vh' }}>
-            {/* Sidebar */}
-            <div
-                style={{
-                    width: sidebarOpen ? '300px' : '60px',
-                    background: '#111',
-                    color: '#fff',
-                    transition: 'width 0.3s',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    zIndex: 1000
-                }}
-            >
-                {!sidebarOpen ? (
-                    <button
-                        style={{
-                            width: '100%',
-                            padding: '5px',
-                            background: '#222',
-                            border: 'none',
-                            color: '#fff',
-                        }}
-                        onClick={handleFetchLaunchHistory}
-                    >
-                        🚀
-                    </button>
-                ) : (
-                    <>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px' }}>
-                            <strong>Launch History</strong>
-                            <button
-                                onClick={handleCloseSidebar}
-                                style={{
-                                    background: 'transparent',
-                                    border: 'none',
-                                    color: '#fff',
-                                    fontSize: '16px',
-                                    cursor: 'pointer',
-                                }}
-                            >
-                                ✖
-                            </button>
-                        </div>
-                        <div style={{ padding: '10px', overflowY: 'auto', maxHeight: 'calc(100vh - 60px)' }}>
-                            {launchData &&
-                                launchData.map((launch, idx) => (
-                                    <div
-                                        key={idx}
-                                        style={{
-                                            marginBottom: '10px',
-                                            borderBottom: '1px solid #444',
-                                            paddingBottom: '5px',
-                                        }}
-                                    >
-                                        <div><strong>Mission:</strong> {launch.mission}</div>
-                                        <div><strong>Launch Date:</strong> {new Date(launch.date).toLocaleDateString()}</div>
-                                        <div><strong>Rocket:</strong> {launch.rocket}</div>
-                                        <div><strong>Agency:</strong> {launch.provider}</div>
-                                    </div>
-                                ))}
-                        </div>
-                    </>
-                )}
-            </div>
-
-            {/* Filter UI */}
-            <div style={{
-                position: 'absolute',
-                top: 10,
-                left: sidebarOpen ? 320 : 80,
-                zIndex: 2000,
-                backgroundColor: '#222',
-                color: '#fff',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                boxShadow: '0 0 5px rgba(0,0,0,0.3)',
-                display: 'flex',
-                gap: '10px',
-                alignItems: 'center'
-            }}>
-                <label htmlFor="type-select">Filter:</label>
-                <select
-                    id="type-select"
-                    value={selectedType}
-                    onChange={handleTypeFilterChange}
-                    style={{
-                        backgroundColor: '#333',
-                        color: '#fff',
-                        border: '1px solid #666',
-                        padding: '4px 8px',
-                        borderRadius: '4px'
-                    }}
-                >
-                    <option value="">-- Select Type --</option>
-                    <option value="communication">Communication</option>
-                    <option value="earth_observation">Earth Observation</option>
-                    <option value="navigation">Navigation</option>
-                    <option value="scientific">Scientific</option>
-                    <option value="military">Military</option>
-                    <option value="cubesat">CubeSat</option>
-                </select>
-                <button
-                    onClick={handleShowCongestion}
-                    style={{
-                        backgroundColor: '#555',
-                        color: '#fff',
-                        border: '1px solid #888',
-                        borderRadius: '4px',
-                        padding: '4px 10px',
-                        cursor: 'pointer'
-                    }}
-                >
-                    Show Congestion
-                </button>
-            </div>
-
-            {/* Cesium Viewer */}
-            <div style={{ flex: 1 }}>
-                <CesiumViewer
-                    onViewerReady={handleViewerReady}
-                    style={{ position: 'absolute', top: 0, bottom: 0, width: '100%' }}
-                />
-            </div>
+      {selectedSatellite && (
+        <div style={{
+          position: 'absolute',
+          top: '40%',
+          left: 0,
+          transform: 'translateY(-50%)',
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          color: 'white',
+          padding: '15px',
+          fontSize: '15px',
+          borderTopRightRadius: '10px',
+          zIndex: 1000,
+          width: '220px',
+        }}>
+          <strong>{selectedSatellite.satelliteName}</strong><br />
+          NORAD: {selectedSatellite.noradID}<br />
+          Lat: {selectedSatellite.latitude.toFixed(2)}<br />
+          Lon: {selectedSatellite.longitude.toFixed(2)}<br />
+          Alt: {selectedSatellite.altitude.toFixed(2)} km
         </div>
-    );
+      )}
+    </div>
+  );
 }

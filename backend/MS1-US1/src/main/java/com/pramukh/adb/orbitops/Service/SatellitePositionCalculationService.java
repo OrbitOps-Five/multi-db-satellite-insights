@@ -45,10 +45,10 @@ public class SatellitePositionCalculationService {
     }
 
     @Scheduled(fixedRate = 30000)
-    public void calculatePositions() {
+    public List<SatellitePositionDTO> calculatePositions() {
         if (!TleReady) {
             System.out.println("Tle Data not inserted yet");
-            return;
+            return null;
         }
         List<SatelliteTle> satilliteList = satellieTleRepository.findAll();
         List<SatellitePositionDTO> positions = new ArrayList<>();
@@ -71,7 +71,7 @@ public class SatellitePositionCalculationService {
 
             String redisKey = "sat:" + sat.getSatilliteName();
             String redisValue = String.format("{\"name\":\"%s\",\"lat\":%.6f,\"lon\":%.6f,\"alt\":%.2f}", sat.getSatilliteName(), lat, lon, alt);
-            stringRedisTemplate.opsForValue().set(redisKey, redisValue, 45, TimeUnit.SECONDS);
+            stringRedisTemplate.opsForValue().set(redisKey, redisValue, 30, TimeUnit.SECONDS);
 
             SatellitePositionDTO position = new SatellitePositionDTO();
             position.setNoradID(sat.getNoradID());
@@ -86,5 +86,6 @@ public class SatellitePositionCalculationService {
         System.out.println("Brodcasted " + count + "times");
         count++;
         template.convertAndSend("/topic/positions", positions);
+        return positions;
     }
 }
