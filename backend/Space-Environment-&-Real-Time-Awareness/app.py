@@ -1,15 +1,19 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from services.alerts import schedule_alert
 from services.congestion import get_congestion_data
 from services.reentry import get_decay_data
 from services.launch_history import get_combined_launch_history
 from services.satellite_filter import get_satellites_by_type
 from bson import ObjectId
-from flask import Flask
-from flask_cors import CORS
+import os
 
 app = Flask(__name__)
 CORS(app)
+
+# Load env vars (for local dev as fallback, optional)
+os.environ.setdefault("MONGO_URI", "mongodb://localhost:27017/")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
 # Satellite visibility alert registration
 @app.route("/api/alerts/register", methods=["POST"])
@@ -68,4 +72,4 @@ def satellite_filter():
     return jsonify(result)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
