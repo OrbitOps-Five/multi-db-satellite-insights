@@ -19,7 +19,7 @@ const GraphViewPage = () => {
   });
 
   useEffect(() => {
-    axios.get('http://127.0.0.1:5003/api/satellites/options')
+    axios.get('http://127.0.0.1:8000/api/satellites/options')
       .then(res => setOptions(res.data))
       .catch(err => console.error('Failed to fetch dropdown options', err));
   }, []);

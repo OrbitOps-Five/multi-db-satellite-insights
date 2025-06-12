@@ -57,8 +57,8 @@ export default function CesiumGraphView({ filters = {} }) {
     if (!graphData.nodes.length) return;
 
     const limitedNodes = graphData.nodes.slice(0, 500);
-    console.log(`Rendering ${limitedNodes.length} nodes and ${graphData.links.length} links`);
-    console.log("Nodes to render after filter:", limitedNodes.map(n => n.id));
+    console.log(`🛰 Rendering ${limitedNodes.length} nodes and ${graphData.links.length} links`);
+    console.log("🛰 Nodes to render after filter:", limitedNodes.map(n => n.id));
 
     const nodeMap = {};
     limitedNodes.forEach((node) => {
