@@ -1,1 +1,26 @@
-# Placeholder for Docker Compose configuration
+version: '3.8'
+
+services:
+  ms-sera:
+    build:
+      context: ./backend/Space-Environment-&-Real-Time-Awareness
+    env_file:
+      - ./backend/Space-Environment-&-Real-Time-Awareness/.env
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mongo
+      - redis
+
+  mongo:
+    image: mongo:6
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7
+    restart: always
+
+volumes:
+  mongo_data:

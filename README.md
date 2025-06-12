@@ -20,7 +20,7 @@ An advanced satellite tracking and visualization platform built using a containe
 |--------------|------------------------|-------------|
 | MS1          | Java Spring Boot       | Pramukh     |
 | MS2          | Python (FastAPI) / Node.js | Manu    |
-| MS3          | Node.js                | Sriram      |
+| MS3          | Python                 | Sriram      |
 | MS4          | Python / Node.js       | Nik / Arnav |
 
 ### Databases (All containerized)

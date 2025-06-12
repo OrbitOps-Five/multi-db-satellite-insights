@@ -1,0 +1,19 @@
+meta {
+  name: Satellite-filter
+  type: http
+  seq: 5
+}
+
+get {
+  url: http://localhost:5000/api/orbit-heatmap
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "lat": 52.52,
+    "lon": 13.405,
+    "user_id": "nikhil"
+  }
+}

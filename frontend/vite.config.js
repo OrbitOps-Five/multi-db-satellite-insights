@@ -7,7 +7,7 @@ export default defineConfig({
     global: "window", // ✅ Fix for sockjs-client "global is not defined"
   },
   server: {
-    port: 5173,
+    port: 5173, // Frontend port
     proxy: {
       "/api": {
         target: "http://localhost:8000",
