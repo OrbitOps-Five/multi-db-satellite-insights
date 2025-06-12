@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import axios from 'axios';
 
-const API_URL = 'http://127.0.0.1:8000/api/satellites/graph';
+const API_URL = 'http://127.0.0.1:5003/api/satellites/graph';
 
 const GraphView = ({ orbit, constellation, country, manufacturer }) => {
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
