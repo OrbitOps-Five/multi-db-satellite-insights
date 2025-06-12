@@ -10,7 +10,7 @@ import ViewerPage from './pages/ViewerPage';
 export default function App() {
   return (
     <BrowserRouter>
-      <div style={{ position: 'fixed', top: 40, bottom: 0, width: '100%' }}>
+      <div>
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/forecast" element={<ForecastPage />} />
