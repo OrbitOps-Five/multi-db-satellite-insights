@@ -19,7 +19,7 @@ An advanced satellite tracking and visualization platform built using a containe
 | Microservice | Stack                  | Developer   |
 |--------------|------------------------|-------------|
 | MS1          | Java Spring Boot       | Pramukh     |
-| MS2          | Python (FastAPI) / Node.js | Manu    |
+| MS2          |  Node.js | Manu    |
 | MS3          | Python                 | Sriram      |
 | MS4          | Python       | Nik / Arnav |
 
@@ -33,10 +33,10 @@ An advanced satellite tracking and visualization platform built using a containe
 ## 📚 Features (User Stories)
 
 - **US1**: 🌍 Live Interactive Satellite Map  
-  → Real-time tracking with hover tooltips showing metadata.
+  → Real-time tracking of satellite position and trajectorys.
 
 - **US2**: 🕒 Forecast Satellite Positions  
-  → Estimated future satellite positions for observation planning.
+  → Estimated future satellite(station) positions and path for observation planning.
 
 - **US3**: 🔥 Orbital Congestion Heatmap & Alerts  
   → Visualize congestion zones + get satellite pass notifications (Redis + Open Notify).
@@ -76,7 +76,7 @@ multi-db-satellite-insights/
 ├── frontend/           # React app
 ├── backend/
 │   ├── ms1-java/       # Spring Boot service
-│   ├── ms2-python/     # FastAPI or Node service
+│   ├── ms2-node/     # Node.js service
 │   ├── ms3-node/       # Node.js service
 │   └── ms4-python/     # Python/Node hybrid
 ├── docker-compose.yml
