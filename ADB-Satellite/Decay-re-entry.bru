@@ -1,13 +1,17 @@
 meta {
-  name: Launch-History
+  name: Decay-re-entry
   type: http
-  seq: 2
+  seq: 6
 }
 
 get {
-  url: http://localhost:5000/api/launch-history
+  url: http://localhost:5000/api/satellites?type=navigation
   body: json
   auth: none
+}
+
+params:query {
+  type: navigation
 }
 
 body:json {
