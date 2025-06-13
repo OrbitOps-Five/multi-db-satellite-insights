@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 from pymongo import MongoClient
 import logging
+import os
 
 def fetch_recent_reentries():
     url = "https://celestrak.org/satcat/decayed-with-last.php"
@@ -51,7 +52,7 @@ def get_decay_data():
         logging.debug("[MongoDB] No data to insert.")
         return []
 
-    client = MongoClient("mongodb://localhost:27017/")
+    client = MongoClient(os.getenv("MONGO_URI", "mongodb://mongo:27017/"))
     db = client["satellite_db"]
     collection = db["decay_data"]
 

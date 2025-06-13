@@ -7,6 +7,8 @@ from services.launch_history import get_combined_launch_history
 from services.satellite_filter import get_satellites_by_type
 from bson import ObjectId
 import os
+from services.alerts import check_alert as check_alert_service
+
 
 app = Flask(__name__)
 CORS(app)
@@ -58,6 +60,13 @@ def launch_history():
         "count": len(result),
         "results": result
     })
+
+@app.route("/api/alerts/check", methods=["GET"])
+def check_alert():
+    user_id = request.args.get("user_id", "default_user")
+    result = check_alert_service(user_id)
+    return jsonify(result)
+
 
 # Filter satellites by type
 @app.route("/api/satellites", methods=["GET"])
