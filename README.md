@@ -78,7 +78,7 @@ multi-db-satellite-insights/
 │   ├── ms1-java/       # Spring Boot service
 │   ├── ms2-node/     # Node.js service
 │   ├── ms3-node/       # Node.js service
-│   └── ms4-python/     # Python/Node hybrid
+│   └── ms4-python/     # Python service
 ├── docker-compose.yml
 └── README.md
 ```
